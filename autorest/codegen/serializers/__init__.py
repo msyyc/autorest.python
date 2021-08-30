@@ -4,8 +4,10 @@
 # license information.
 # --------------------------------------------------------------------------
 from typing import List
+import json
 from pathlib import Path
 from jinja2 import PackageLoader, Environment
+from jinja2.nodes import Output
 from autorest.codegen.models.operation_group import OperationGroup
 
 from ...jsonrpc import AutorestAPI
@@ -20,6 +22,7 @@ from .operations_init_serializer import OperationsInitSerializer
 from .operation_group_serializer import OperationGroupSerializer
 from .metadata_serializer import MetadataSerializer
 from .rest_serializer import RestPython3Serializer, RestGenericSerializer, RestSerializer
+from .example_serializer import ExampleSerializer
 
 __all__ = [
     "JinjaSerializer",
@@ -70,6 +73,47 @@ class JinjaSerializer:
 
         if code_model.options["models_mode"] and (code_model.schemas or code_model.enums):
             self._serialize_and_write_models_folder(code_model=code_model, env=env, namespace_path=namespace_path)
+
+
+        if code_model.options["show_operations"] and code_model.operation_groups:
+            for operation_group in code_model.operation_groups:
+                operation_group_name = operation_group.name
+                for operation in operation_group.operations:
+                    try:
+                        examples = operation.yaml_data["extensions"]["x-ms-examples"]
+                    except:
+                        continue
+                    else:
+                        operation_name = operation.python_name
+                        parameters = []
+                        is_body = False
+                        for parameter in operation.parameters.positional:
+                            if not parameter.is_body:
+                                parameters.append((parameter.serialized_name, f"\"{parameter.serialized_name.upper()}\""))
+                            else:
+                                parameters.append((parameter.serialized_name, ""))
+                                is_body = True
+                        for key, value in examples.items():
+                            try:
+                                body = value["parameters"]["requestBody"]["properties"]
+                                body = json.dumps(body, indent=4, separators=(',', ':'))
+                                body = body.replace('\n', '\n        ')
+                            except:
+                                body = f"{key}.json does not contain requestBody!!!"
+                            finally:
+                                # usually, body parameter is the last signature in method
+                                if is_body:
+                                    parameters[-1] = (parameters[-1][0], body)
+                                self._autorestapi.write_file(
+                                    Path("example") / Path(f"{key}.py"),
+                                    ExampleSerializer(
+                                        code_model=code_model,
+                                        env=env,
+                                        operation_group_name=operation_group_name,
+                                        operation_name=operation_name,
+                                        parameters=parameters
+                                    ).serialize()
+                                )
 
 
     def _serialize_and_write_models_folder(self, code_model: CodeModel, env: Environment, namespace_path: Path) -> None:

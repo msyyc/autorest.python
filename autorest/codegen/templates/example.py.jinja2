@@ -1,0 +1,28 @@
+# coding=utf-8
+{{ code_model.options['license_header'] }}
+
+import os
+from azure.identity import DefaultAzureCredential
+from {{ code_model.options["package_name"].replace("-", ".") }} import {{ code_model.class_name }}
+
+# it just shows how to use the method and may not run directly
+def main():
+
+    # For other authentication approaches, please see: https://pypi.org/project/azure-identity/
+    client = {{ code_model.class_name }}(
+        credential=DefaultAzureCredential(),
+        subscription_id=os.environ.get("SUBSCRIPTION_ID", None)
+    )
+
+    {% if parameters %}
+    result = client.{{ operation_group_name }}.{{ operation_name }}(
+        {% for item in parameters %}
+        {{ item[0] }} = {{ item[1] }},
+        {% endfor %}
+    )
+    {% else %}
+    result = client.{{ operation_group_name }}.{{ operation_name }}()
+    {% endif %}
+
+if __name__ == "__main__":
+    main()
