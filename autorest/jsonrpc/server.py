@@ -7,6 +7,7 @@ import contextlib
 import os
 import sys
 import logging
+from typing import Dict, Any
 
 from jsonrpc import dispatcher, JSONRPCResponseManager
 
@@ -19,7 +20,6 @@ _LOGGER = logging.getLogger(__name__)
 @dispatcher.add_method
 def GetPluginNames():
     return ["codegen", "m2r", "namer", "black", "multiapiscript"]
-
 
 @dispatcher.add_method
 def Process(plugin_name: str, session_id: str) -> bool:
@@ -49,11 +49,30 @@ def Process(plugin_name: str, session_id: str) -> bool:
 
         try:
             _LOGGER.debug("Starting plugin %s", PluginToLoad.__name__)
-            return plugin.process()
+            flag = os.environ.get("AUTOREST_PYTHON_CODE_COVERAGE", "no")
+            if flag in ("yes", "true"):
+                _LOGGER.debug("Begin count code coverage %s", PluginToLoad.__name__)
+                return coverage_process('plugin.process()', globals=globals(), locals=locals())
+            else:
+                return plugin.process()
         except Exception:  # pylint: disable=broad-except
             _LOGGER.exception("Python generator raised an exception")
     return False
 
+def coverage_process(cmd: str, globals: Dict[Any, Any], locals: Dict[Any, Any]):
+    import coverage, time
+
+    cov = coverage.Coverage(data_suffix=str(time.time()))
+    cov.start()
+
+    process_result = 'process_result'
+    cmd = process_result + ' = ' + cmd
+    exec(cmd, globals, locals)
+
+    cov.stop()
+    cov.save()
+
+    return locals.get(process_result)
 
 def main() -> None:
     # If --python.debugger is specified on the command line, we call the server.py file internally

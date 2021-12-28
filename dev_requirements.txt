@@ -8,3 +8,5 @@ ptvsd
 mypy
 black
 types-PyYAML
+coverage==6.2
+pytest-cov==3.0.0
