@@ -12,6 +12,9 @@ from colorama import init, Fore
 from invoke import task, run
 import shutil
 import re
+from pathlib import Path
+from subprocess import check_call
+from time import time
 
 init()
 class _SwaggerGroup(Enum):
@@ -538,3 +541,25 @@ def regenerate_python3_only(c, debug=False, version_tolerant=False):
         "package-name": "bodycomplexpython3only",
     }
     _regenerate(mapping, debug, swagger_group=_SwaggerGroup.VANILLA, override_flags=override_flags, version_tolerant=version_tolerant)
+
+@task
+def coverage(c):
+    current_folder = Path(os.getcwd())
+    
+    if current_folder.parts[-1] != 'autorest.python':
+        raise Exception('please make sure the work folder is "autorest.python"')
+    # run unittest
+    test_folder = current_folder / 'test' / 'unittests'
+    check_call(f'pytest --cov=autorest {test_folder} --cov-report=', shell=True)
+    test_data = '.coverage'
+    if os.path.exists(test_data):
+        os.rename(test_data, f'{test_data}.{str(time())}')
+    
+    # run regenerate
+    os.environ['AUTOREST_PYTHON_CODE_COVERAGE'] = 'true'
+    regenerate(c)
+    os.environ.pop('AUTOREST_PYTHON_CODE_COVERAGE')
+
+    # combine data and report
+    check_call('coverage combine', shell=True)
+    check_call('coverage html', shell=True)
