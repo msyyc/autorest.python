@@ -3,8 +3,19 @@
 # Licensed under the MIT License. See License.txt in the project root for
 # license information.
 # --------------------------------------------------------------------------
+import json
 from typing import Dict, List, Optional, Any, Union
 from pathlib import Path
+from autorest.codegen.models.credential_types import (
+    AzureKeyCredentialType,
+    TokenCredentialType,
+)
+from autorest.codegen.models.imports import FileImport, ImportType
+from autorest.codegen.serializers.utils import (
+    SAMPLE_AAD_ANNOTATION,
+    SAMPLE_CLIENT_SUB,
+    SAMPLE_KEY_ANNOTATION,
+)
 from jinja2 import PackageLoader, Environment, FileSystemLoader, StrictUndefined
 from autorest.codegen.models.operation_group import OperationGroup
 from autorest.codegen.models.request_builder import OverloadedRequestBuilder
@@ -21,6 +32,8 @@ from .operation_groups_serializer import OperationGroupsSerializer
 from .metadata_serializer import MetadataSerializer
 from .request_builders_serializer import RequestBuildersSerializer
 from .patch_serializer import PatchSerializer
+from .sample_serializer import SampleSerializer
+from ..models import BodyParameter
 
 __all__ = [
     "JinjaSerializer",
@@ -49,6 +62,12 @@ class JinjaSerializer:
             self.code_model.request_builders
         )
 
+    def _generate_operation_file(self) -> bool:
+        return (
+            self.code_model.options["show_operations"]
+            and self.code_model.operation_groups
+        )
+
     def serialize(self) -> None:
         env = Environment(
             loader=PackageLoader("autorest.codegen", "templates"),
@@ -75,10 +94,7 @@ class JinjaSerializer:
             self._keep_patch_file(
                 namespace_path / Path("models") / Path("_patch.py"), env
             )
-        if (
-            self.code_model.options["show_operations"]
-            and self.code_model.operation_groups
-        ):
+        if self._generate_operation_file:
             self._keep_patch_file(
                 namespace_path
                 / Path(self.code_model.operations_folder_name)
@@ -109,10 +125,7 @@ class JinjaSerializer:
                     namespace_path=namespace_path,
                 )
 
-        if (
-            self.code_model.options["show_operations"]
-            and self.code_model.operation_groups
-        ):
+        if self._generate_operation_file:
             self._serialize_and_write_operations_folder(
                 env=env, namespace_path=namespace_path
             )
@@ -136,9 +149,14 @@ class JinjaSerializer:
                 )
 
         if self.code_model.options["package_mode"]:
-            self._serialize_and_write_package_files(out_path=namespace_path)
+            self._serialize_and_write_package_files(namespace_path=namespace_path)
 
-    def _serialize_and_write_package_files(self, out_path: Path) -> None:
+        if self._generate_operation_file and self.code_model.options["generate_sample"]:
+            self._serialize_and_write_sample_folder(
+                env=env, namespace_path=namespace_path
+            )
+
+    def _serialize_and_write_package_files(self, namespace_path: Path) -> None:
         def _serialize_and_write_package_files_proc(**kwargs: Any):
             for template_name in package_files:
                 file = template_name.replace(".jinja2", "")
@@ -182,9 +200,7 @@ class JinjaSerializer:
             params.update(self.code_model.package_dependency)
             return params
 
-        count = self.code_model.options["package_name"].count("-") + 1
-        for _ in range(count):
-            out_path = out_path / Path("..")
+        out_path = self._package_root_folder(namespace_path)
 
         if self.code_model.options["package_mode"] in ("dataplane", "mgmtplane"):
             env = Environment(
@@ -527,3 +543,109 @@ class JinjaSerializer:
         self._autorestapi.write_file(
             namespace_path / Path("_metadata.json"), metadata_serializer.serialize()
         )
+
+    def _package_root_folder(self, namespace_path: Path) -> Path:
+        count = self.code_model.options["package_name"].count("-") + 1
+        for _ in range(count):
+            namespace_path = namespace_path / Path("..")
+        return namespace_path
+
+    @staticmethod
+    def _extract_body_value(sample_name: str, sample_value: Dict[Any, Any]) -> str:
+        try:
+            body = sample_value["parameters"]["requestBody"]["properties"]
+            body = json.dumps(body, indent=4, separators=(",", ":"))
+            return body.replace("\n", "\n        ")
+        except:
+            return f"{sample_name}.json does not contain requestBody!!!"
+
+    def _prepare_sample_render_param(self) -> Dict[Any, Any]:
+        # client params
+        credential = ""
+        annotation = ""
+        if isinstance(self.code_model.credential.type, TokenCredentialType):
+            credential = "DefaultAzureCredential"
+            annotation = SAMPLE_AAD_ANNOTATION
+        elif isinstance(self.code_model.credential.type, AzureKeyCredentialType):
+            credential = "AzureKeyCredential"
+            annotation = SAMPLE_KEY_ANNOTATION
+
+        addtional_info = (
+            'key=os.getenv("AZURE_KEY")' if credential == "AzureKeyCredential" else ""
+        )
+        special_param = {
+            "subscription_id": 'os.getenv("AZURE_SUBSCRIPTION_ID")',
+            "credential": f"{credential}({addtional_info})",
+        }
+        params_positional = [
+            p
+            for p in self.code_model.client.parameters.positional
+            if not (p.optional or p.client_default_value)
+        ]
+        client_params = {
+            p.client_name: special_param.get(p.client_name, p.client_name.upper())
+            for p in params_positional
+        }
+        if client_params.get("subcription_id"):
+            annotation = f"{annotation}\n{SAMPLE_CLIENT_SUB}"
+
+        # imports
+        imports = FileImport()
+        namespace = self.code_model.options["package_name"].replace("-", ".")
+        imports.add_submodule_import(
+            namespace, self.code_model.client.name, ImportType.THIRDPARTY
+        )
+        imports.add_import("os", ImportType.STDLIB)
+        if credential:
+            imports.add_submodule_import(
+                "azure.identity", credential, ImportType.THIRDPARTY
+            )
+
+        return {
+            "imports": imports,
+            "client_params": client_params,
+            "annotation": annotation,
+        }
+
+    def _serialize_and_write_sample_folder(
+        self, env: Environment, namespace_path: Path
+    ) -> None:
+        out_path = self._package_root_folder(namespace_path) / Path(
+            "samples/generated_samples"
+        )
+        sample_render = self._prepare_sample_render_param()
+        for operation_group in self.code_model.operation_groups:
+            for operation in operation_group.operations:
+                samples = operation.yaml_data["samples"]
+                if not samples:
+                    continue
+                params_positional = [
+                    p
+                    for p in operation.parameters.positional
+                    if not (p.optional or p.client_default_value)
+                ]
+                for key, value in samples.items():
+                    operation_params = {}
+                    for param in params_positional:
+                        if isinstance(param, BodyParameter):
+                            param_value = self._extract_body_value(key, value)
+                        else:
+                            param_value = value["parameters"].get(
+                                param.rest_api_name,
+                                param.client_name.upper(),
+                            )
+                        operation_params[param.client_name] = f'"{param_value}"'
+                    self._autorestapi.write_file(
+                        out_path / f"{key}.py",
+                        SampleSerializer(
+                            code_model=self.code_model,
+                            env=env,
+                            operation_group_name=operation_group.property_name,
+                            operation_name=operation.name,
+                            client_params=sample_render.get("client_params"),
+                            operation_params=operation_params,
+                            imports=sample_render.get("imports"),
+                            annotation=sample_render.get("annotation"),
+                            origin_file=value.get("x-ms-original-file"),
+                        ).serialize(),
+                    )
