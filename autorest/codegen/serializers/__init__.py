@@ -11,6 +11,7 @@ from autorest.codegen.models.credential_types import (
     TokenCredentialType,
 )
 from autorest.codegen.models.imports import FileImport, ImportType
+from autorest.codegen.serializers.builder_serializer import OperationType
 from autorest.codegen.serializers.utils import (
     SAMPLE_AAD_ANNOTATION,
     SAMPLE_CLIENT_SUB,
@@ -546,7 +547,8 @@ class JinjaSerializer:
 
     def _package_root_folder(self, namespace_path: Path) -> Path:
         count = self.code_model.options["package_name"].count("-") + 1
-        for _ in range(count):
+        extra = 2 if self.code_model.options["multiapi"] else 1
+        for _ in range(count+extra):
             namespace_path = namespace_path / Path("..")
         return namespace_path
 
@@ -554,10 +556,9 @@ class JinjaSerializer:
     def _extract_body_value(sample_name: str, sample_value: Dict[Any, Any]) -> str:
         try:
             body = sample_value["parameters"]["requestBody"]["properties"]
-            body = json.dumps(body, indent=4, separators=(",", ":"))
-            return body.replace("\n", "\n        ")
+            return json.dumps(body, indent=4)
         except:
-            return f"{sample_name}.json does not contain requestBody!!!"
+            return f"\"{sample_name}.json does not contain body value!\""
 
     def _prepare_sample_render_param(self) -> Dict[Any, Any]:
         # client params
@@ -607,14 +608,26 @@ class JinjaSerializer:
             "annotation": annotation,
         }
 
+    @staticmethod
+    def _operation_additional(operation: OperationType)->str:
+        if operation.operation_type == "paging":
+            return "\n    response = [item for item in response]"
+        elif operation.operation_type == 'lro':
+            return ".result()"
+        return ""
+
     def _serialize_and_write_sample_folder(
         self, env: Environment, namespace_path: Path
     ) -> None:
         out_path = self._package_root_folder(namespace_path) / Path(
             "samples/generated_samples"
         )
-        sample_render = self._prepare_sample_render_param()
+        sample_params = self._prepare_sample_render_param()
         for operation_group in self.code_model.operation_groups:
+            if self.code_model.options["multiapi"]:
+                api_version_folder = f"{operation_group.api_versions[0]}/"
+            else:
+                api_version_folder = ""
             for operation in operation_group.operations:
                 samples = operation.yaml_data["samples"]
                 if not samples:
@@ -622,30 +635,30 @@ class JinjaSerializer:
                 params_positional = [
                     p
                     for p in operation.parameters.positional
-                    if not (p.optional or p.client_default_value)
+                    if not p.client_default_value
                 ]
+                operation_result = self._operation_additional(operation)
                 for key, value in samples.items():
                     operation_params = {}
                     for param in params_positional:
                         if isinstance(param, BodyParameter):
                             param_value = self._extract_body_value(key, value)
                         else:
-                            param_value = value["parameters"].get(
+                            param_value = f'\"' + str(value["parameters"].get(
                                 param.rest_api_name,
                                 param.client_name.upper(),
-                            )
-                        operation_params[param.client_name] = f'"{param_value}"'
+                            )) + "\""
+                        operation_params[param.client_name] = param_value
                     self._autorestapi.write_file(
-                        out_path / f"{key}.py",
+                        out_path / f"{api_version_folder}{key}.py",
                         SampleSerializer(
                             code_model=self.code_model,
                             env=env,
                             operation_group_name=operation_group.property_name,
                             operation_name=operation.name,
-                            client_params=sample_render.get("client_params"),
                             operation_params=operation_params,
-                            imports=sample_render.get("imports"),
-                            annotation=sample_render.get("annotation"),
+                            sample_params=sample_params,
+                            operation_result=operation_result,
                             origin_file=value.get("x-ms-original-file"),
                         ).serialize(),
                     )

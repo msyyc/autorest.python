@@ -4,6 +4,7 @@
 {{ imports }}
 
 # the sample just shows how to use the method and may not run directly
+# Before run the py file, please install the package: pip install {{ code_model.options["package_name"] }}
 {% if origin_file %}
 # x-ms-original-file: {{ origin_file }}
 {% endif %}
@@ -16,14 +17,16 @@ def main():
     )
 
     {% if operation_params %}
-    result = client.{{ operation_group_name }}.{{ operation_name }}(
+    response = client.{{ operation_group_name }}.{{ operation_name }}(
         {% for key, value in operation_params.items() %}
-        {{ key }}={{ value }},
+        {{ key }}={{ value|indent(8) }},
         {% endfor %}
-    )
+    ){{ operation_result }}
     {% else %}
-    result = client.{{ operation_group_name }}.{{ operation_name }}()
+    response = client.{{ operation_group_name }}.{{ operation_name }}(){{ operation_result }}
     {% endif %}
+    print(response)
+
 
 if __name__ == "__main__":
     main()

@@ -19,20 +19,18 @@ class SampleSerializer:
         env: Environment,
         operation_group_name: str,
         operation_name: str,
-        client_params: Dict[Any, Any],
         operation_params: Dict[Any, Any],
-        imports: FileImport,
-        annotation: str,
+        sample_params: Dict[Any, Any],
+        operation_result: str,
         origin_file: Optional[str],
     ) -> None:
         self.code_model = code_model
         self.env = env
         self.operation_group_name = operation_group_name
         self.operation_name = operation_name
-        self.client_params = client_params
         self.operation_params = operation_params
-        self.imports = imports
-        self.annotation = annotation
+        self.sample_params = sample_params
+        self.operation_result = operation_result
         self.origin_file = origin_file
 
     def serialize(self) -> str:
@@ -41,9 +39,10 @@ class SampleSerializer:
             code_model=self.code_model,
             operation_group_name=self.operation_group_name,
             operation_name=self.operation_name,
-            client_params=self.client_params,
+            client_params=self.sample_params["client_params"],
             operation_params=self.operation_params,
             origin_file=self.origin_file,
-            imports=FileImportSerializer(self.imports, True),
-            annotation=self.annotation,
+            imports=FileImportSerializer(self.sample_params["imports"], True),
+            annotation=self.sample_params["annotation"],
+            operation_result=self.operation_result,
         )
