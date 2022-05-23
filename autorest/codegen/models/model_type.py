@@ -71,7 +71,7 @@ class ModelType(BaseType):  # pylint: disable=too-many-instance-attributes
 
     def type_annotation(self, **kwargs: Any) -> str:
         if self.code_model.options["models_mode"]:
-            retval = f"_models.{self.name}"
+            retval = f"_models.{self.name}" if self.name[0] != '_' else self.name
             return retval if kwargs.pop("is_operation_file", False) else f'"{retval}"'
         return "ET.Element" if self.is_xml else "JSON"
 

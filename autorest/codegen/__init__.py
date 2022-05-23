@@ -33,6 +33,15 @@ def _build_convenience_layer(yaml_data: Dict[str, Any], code_model: CodeModel) -
     if code_model.options["show_operations"]:
         # LRO operation
         code_model.format_lro_operations()
+    
+    if code_model.options["version_tolerant"] and code_model.options["models_mode"] == "msrest":
+        for operation_group in code_model.operation_groups:
+            for operation in operation_group.operations:
+                if operation.operation_type in ("paging", "lropaging"):
+                    for response in operation.responses:
+                        if response.type.name[0] != '_':
+                            response.type.name = '_' + response.type.name
+
 
 
 def _validate_code_model_options(options: Dict[str, Any]) -> None:
