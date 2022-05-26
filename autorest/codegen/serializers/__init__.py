@@ -3,9 +3,11 @@
 # Licensed under the MIT License. See License.txt in the project root for
 # license information.
 # --------------------------------------------------------------------------
-import json
+import black
+import logging
 from typing import Dict, List, Optional, Any, Union
 from pathlib import Path
+
 from autorest.codegen.models.credential_types import (
     AzureKeyCredentialType,
     TokenCredentialType,
@@ -35,6 +37,9 @@ from .request_builders_serializer import RequestBuildersSerializer
 from .patch_serializer import PatchSerializer
 from .sample_serializer import SampleSerializer
 from ..models import BodyParameter
+
+_LOGGER = logging.getLogger(__name__)
+_BLACK_MODE = black.Mode()
 
 __all__ = [
     "JinjaSerializer",
@@ -546,19 +551,11 @@ class JinjaSerializer:
         )
 
     def _package_root_folder(self, namespace_path: Path) -> Path:
-        count = self.code_model.options["package_name"].count("-") + 1
+        count = self.code_model.options["package_name"].count("-")
         extra = 2 if self.code_model.options["multiapi"] else 1
-        for _ in range(count+extra):
+        for _ in range(count + extra):
             namespace_path = namespace_path / Path("..")
         return namespace_path
-
-    @staticmethod
-    def _extract_body_value(sample_name: str, sample_value: Dict[Any, Any]) -> str:
-        try:
-            body = sample_value["parameters"]["requestBody"]["properties"]
-            return json.dumps(body, indent=4)
-        except:
-            return f"\"{sample_name}.json does not contain body value!\""
 
     def _prepare_sample_render_param(self) -> Dict[Any, Any]:
         # client params
@@ -609,23 +606,28 @@ class JinjaSerializer:
         }
 
     @staticmethod
-    def _operation_additional(operation: OperationType)->str:
+    def _operation_additional(operation: OperationType) -> str:
+        lro = ".result()"
+        paging = "\n    response = [item for item in response]"
         if operation.operation_type == "paging":
             return "\n    response = [item for item in response]"
-        elif operation.operation_type == 'lro':
+        elif operation.operation_type == "lro":
             return ".result()"
+        elif operation.operation_type == "lropaging":
+            return lro + paging
         return ""
 
     def _serialize_and_write_sample_folder(
         self, env: Environment, namespace_path: Path
     ) -> None:
         out_path = self._package_root_folder(namespace_path) / Path(
-            "samples/generated_samples"
+            "_generated_samples"
         )
         sample_params = self._prepare_sample_render_param()
         for operation_group in self.code_model.operation_groups:
             if self.code_model.options["multiapi"]:
                 api_version_folder = f"{operation_group.api_versions[0]}/"
+                sample_params["client_params"]["api_version"] = f"\"{operation_group.api_versions[0]}\""
             else:
                 api_version_folder = ""
             for operation in operation_group.operations:
@@ -638,20 +640,31 @@ class JinjaSerializer:
                     if not p.client_default_value
                 ]
                 operation_result = self._operation_additional(operation)
+                failure_info = "\"fail to find required param named `{}` in example file {}\""
                 for key, value in samples.items():
+                    # prepare parameters
                     operation_params = {}
                     for param in params_positional:
                         if isinstance(param, BodyParameter):
-                            param_value = self._extract_body_value(key, value)
+                            name = param.client_name
+                            fake_value = failure_info.format(param.client_name, key)
+                            cls = lambda x: str(x)
                         else:
-                            param_value = f'\"' + str(value["parameters"].get(
-                                param.rest_api_name,
-                                param.client_name.upper(),
-                            )) + "\""
-                        operation_params[param.client_name] = param_value
-                    self._autorestapi.write_file(
-                        out_path / f"{api_version_folder}{key}.py",
-                        SampleSerializer(
+                            name = param.rest_api_name
+                            fake_value = param.client_name.upper()
+                            cls = lambda x: f'"{x}"' if isinstance(x, str) else str(x)
+
+                        param_value = value["parameters"].get(name)
+                        if param_value or not param.optional:
+                            if not param_value:
+                                # if can't find required param, need to log it
+                                _LOGGER.info(failure_info.format(name, key))
+                                param_value = fake_value
+                            operation_params[param.client_name] = cls(param_value)
+    
+                    # serialize and output
+                    try:
+                        file_str = SampleSerializer(
                             code_model=self.code_model,
                             env=env,
                             operation_group_name=operation_group.property_name,
@@ -660,5 +673,12 @@ class JinjaSerializer:
                             sample_params=sample_params,
                             operation_result=operation_result,
                             origin_file=value.get("x-ms-original-file"),
-                        ).serialize(),
-                    )
+                        ).serialize()
+                        format_str = black.format_file_contents(file_str, fast=True, mode=_BLACK_MODE)
+                        self._autorestapi.write_file(
+                            out_path / f"{api_version_folder}{key}.py",
+                            black.format_file_contents(file_str, fast=True, mode=_BLACK_MODE),
+                        )
+                    except Exception:
+                        # sample generation shall not block code generation, so just log error
+                        _LOGGER.error(f'error happens when generating sample with {key}')
