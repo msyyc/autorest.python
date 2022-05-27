@@ -19,7 +19,7 @@ from typing import (
 
 from .request_builder_parameter import RequestBuilderParameter
 
-from .utils import OrderedSet
+from .utils import OrderedSet, add_to_pylint_disable
 
 from .base_builder import BaseBuilder
 from .imports import FileImport, ImportType, TypingSection
@@ -51,7 +51,9 @@ ResponseType = TypeVar(
 )
 
 
-class OperationBase(Generic[ResponseType], BaseBuilder[ParameterList]):
+class OperationBase(  # pylint: disable=too-many-public-methods
+    Generic[ResponseType], BaseBuilder[ParameterList]
+):
     def __init__(
         self,
         yaml_data: Dict[str, Any],
@@ -116,6 +118,14 @@ class OperationBase(Generic[ResponseType], BaseBuilder[ParameterList]):
         if self.responses:
             return self.responses[0].type_annotation(**kwargs)
         return "None"
+
+    @property
+    def pylint_disable(self) -> str:
+        retval: str = ""
+        if self.response_type_annotation(async_mode=False) == "None":
+            # doesn't matter if it's async or not
+            retval = add_to_pylint_disable(retval, "inconsistent-return-statements")
+        return retval
 
     def cls_type_annotation(self, *, async_mode: bool) -> str:
         if (
@@ -189,14 +199,14 @@ class OperationBase(Generic[ResponseType], BaseBuilder[ParameterList]):
             )
         )
 
-    def _imports_shared(self, async_mode: bool) -> FileImport:
+    def _imports_shared(self, async_mode: bool, **kwargs: Any) -> FileImport:
         file_import = FileImport()
         file_import.add_submodule_import(
             "typing", "Any", ImportType.STDLIB, TypingSection.CONDITIONAL
         )
         if not self.abstract:
             for param in self.parameters.method:
-                file_import.merge(param.imports(async_mode))
+                file_import.merge(param.imports(async_mode, **kwargs))
 
         response_types = [
             r.type_annotation(async_mode=async_mode) for r in self.responses if r.type
@@ -207,10 +217,17 @@ class OperationBase(Generic[ResponseType], BaseBuilder[ParameterList]):
             )
         return file_import
 
-    def imports_for_multiapi(self, async_mode: bool) -> FileImport:
-        file_import = self._imports_shared(async_mode)
+    def imports_for_multiapi(self, async_mode: bool, **kwargs: Any) -> FileImport:
+        file_import = self._imports_shared(async_mode, **kwargs)
         for response in self.responses:
-            file_import.merge(response.imports_for_multiapi(async_mode=async_mode))
+            file_import.merge(
+                response.imports_for_multiapi(async_mode=async_mode, **kwargs)
+            )
+        if self.code_model.options["models_mode"]:
+            for exception in self.exceptions:
+                file_import.merge(
+                    exception.imports_for_multiapi(async_mode=async_mode, **kwargs)
+                )
         return file_import
 
     @staticmethod
@@ -269,11 +286,19 @@ class OperationBase(Generic[ResponseType], BaseBuilder[ParameterList]):
             )
         return file_import
 
-    def imports(self, async_mode: bool, is_python3_file: bool) -> FileImport:
-        file_import = self._imports_shared(async_mode)
+    def imports(
+        self, async_mode: bool, is_python3_file: bool, **kwargs: Any
+    ) -> FileImport:
+        file_import = self._imports_shared(async_mode, **kwargs)
 
         for response in self.responses:
-            file_import.merge(response.imports(async_mode=async_mode))
+            file_import.merge(response.imports(async_mode=async_mode, **kwargs))
+        if self.code_model.options["models_mode"]:
+            for exception in self.exceptions:
+                file_import.merge(exception.imports(async_mode=async_mode, **kwargs))
+
+        if self.parameters.has_body and self.parameters.body_parameter.flattened:
+            file_import.merge(self.parameters.body_parameter.type.imports(**kwargs))
 
         # Exceptions
         if self.abstract:
@@ -445,8 +470,10 @@ class OperationBase(Generic[ResponseType], BaseBuilder[ParameterList]):
 
 
 class Operation(OperationBase[Response]):
-    def imports(self, async_mode: bool, is_python3_file: bool) -> FileImport:
-        file_import = super().imports(async_mode, is_python3_file)
+    def imports(
+        self, async_mode: bool, is_python3_file: bool, **kwargs: Any
+    ) -> FileImport:
+        file_import = super().imports(async_mode, is_python3_file, **kwargs)
         if async_mode:
             file_import.add_submodule_import(
                 f"azure.core.tracing.decorator_async",

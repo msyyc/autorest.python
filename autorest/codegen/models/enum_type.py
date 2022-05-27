@@ -176,13 +176,20 @@ class EnumType(BaseType):
                 "typing", "Union", ImportType.STDLIB, TypingSection.CONDITIONAL
             )
             if not is_operation_file:
-                file_import.add_import(
-                    "__init__",
+                file_import.add_submodule_import(
+                    "..",
+                    "models",
                     ImportType.LOCAL,
-                    typing_section=TypingSection.TYPING,
+                    TypingSection.TYPING,
                     alias="_models",
                 )
         file_import.merge(
             self.value_type.imports(is_operation_file=is_operation_file, **kwargs)
         )
+        relative_path = kwargs.pop("relative_path", None)
+        if self.code_model.options["models_mode"] and relative_path:
+            # add import for enums in operations file
+            file_import.add_submodule_import(
+                relative_path, "models", ImportType.LOCAL, alias="_models"
+            )
         return file_import

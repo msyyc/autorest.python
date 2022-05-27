@@ -196,9 +196,7 @@ class _BuilderBaseSerializer(Generic[BuilderType]):  # pylint: disable=abstract-
             method_param_signatures=builder.method_signature(
                 self.async_mode or self.is_python3_file, self.async_mode
             ),
-            ignore_inconsistent_return_statements=(
-                builder.response_type_annotation(async_mode=self.async_mode) == "None"
-            ),
+            pylint_disable=builder.pylint_disable,
         )
 
     def method_signature_and_response_type_annotation(
@@ -567,7 +565,7 @@ class _OperationSerializer(
         return [
             response_str,
             rtype_str,
-            ":raises: ~azure.core.exceptions.HttpResponseError",
+            ":raises ~azure.core.exceptions.HttpResponseError:",
         ]
 
     def _serialize_body_parameter(self, builder: OperationType) -> List[str]:

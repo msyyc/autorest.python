@@ -8,6 +8,7 @@ from typing import Any, Dict, TYPE_CHECKING, TypeVar, Generic, Union
 from .base_model import BaseModel
 from .parameter_list import ClientGlobalParameterList, ConfigGlobalParameterList
 from .imports import FileImport, ImportType, TypingSection
+from .utils import add_to_pylint_disable
 
 ParameterListType = TypeVar(
     "ParameterListType",
@@ -67,6 +68,13 @@ class Client(_ClientConfigBase[ClientGlobalParameterList]):
     def has_parameterized_host(self) -> bool:
         """Whether the base url is parameterized or not"""
         return not any(p for p in self.parameters if p.is_host)
+
+    @property
+    def pylint_disable(self) -> str:
+        retval = add_to_pylint_disable("", "client-accepts-api-version-keyword")
+        if len(self.code_model.operation_groups) > 6:
+            retval = add_to_pylint_disable(retval, "too-many-instance-attributes")
+        return retval
 
     @property
     def filename(self) -> str:
@@ -139,7 +147,23 @@ class Client(_ClientConfigBase[ClientGlobalParameterList]):
 
         if self.code_model.model_types and self.code_model.options["models_mode"]:
             path_to_models = ".." if async_mode else "."
-            file_import.add_submodule_import(path_to_models, "models", ImportType.LOCAL)
+            if len(self.code_model.model_types) != len(
+                self.code_model.public_model_types
+            ):
+                # this means we have hidden models. In that case, we import directly from the models
+                # file, not the module, bc we don't expose the hidden models in the models module
+
+                # Also in this case, we're in version tolerant, so python3 only is true
+                file_import.add_submodule_import(
+                    f"{path_to_models}models",
+                    f"{self.code_model.get_models_filename(is_python3_file=True)}",
+                    ImportType.LOCAL,
+                    alias="models",
+                )
+            else:
+                file_import.add_submodule_import(
+                    path_to_models, "models", ImportType.LOCAL
+                )
         else:
             # in this case, we have client_models = {} in the service client, which needs a type annotation
             # this import will always be commented, so will always add it to the typing section
