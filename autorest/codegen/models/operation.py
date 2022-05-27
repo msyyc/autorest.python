@@ -414,6 +414,7 @@ class OperationBase(Generic[ResponseType], BaseBuilder[ParameterList]):
             cls.from_yaml(overload, code_model)
             for overload in yaml_data.get("overloads", [])
         ]
+        update_param_for_overload(parameter_list, overloads)
         abstract = False
         if (
             code_model.options["version_tolerant"]
@@ -474,3 +475,15 @@ def get_operation(yaml_data: Dict[str, Any], code_model: "CodeModel") -> Operati
     else:
         from . import Operation as OperationCls  # type: ignore
     return OperationCls.from_yaml(yaml_data, code_model)
+
+def update_param_for_overload(parameter_list: ParameterList, overloads: List[Operation]):
+    if len(overloads) < 2:
+        return
+
+    for param in parameter_list.parameters:
+        param.body_param = None
+        for overload in overloads:
+            optionals = set(overload_param.optional for overload_param in overload.parameters if param.client_name == overload_param.client_name)
+            if len(optionals) < 2:
+                param.body_param = parameter_list.body_parameter
+                return

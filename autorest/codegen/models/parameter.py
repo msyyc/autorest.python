@@ -5,6 +5,7 @@
 # --------------------------------------------------------------------------
 import abc
 from enum import Enum, auto
+from lib2to3.pgen2.token import OP
 
 from typing import (
     Dict,
@@ -81,6 +82,7 @@ class _ParameterBase(
         self.flattened: bool = self.yaml_data.get("flattened", False)
         self.in_flattened_body: bool = self.yaml_data.get("inFlattenedBody", False)
         self.grouper: bool = self.yaml_data.get("grouper", False)
+        self.body_param: Optional[BodyParameter] = None
 
     @property
     def constant(self) -> bool:
@@ -109,6 +111,12 @@ class _ParameterBase(
                 f"Default value is {self.client_default_value_declaration}.",
             )
         if self.optional and self.client_default_value is None:
+            if self.body_param:
+                overload_descrip = ''
+                content_types = "'" + "', '".join(self.body_param.content_types) + "'"
+                overload_descrip += f'If {self.body_param.client_name} type is {self.type.docstring_type}, {self.client_name} is required and known values are'
+
+
             base_description = add_to_description(
                 base_description,
                 f"Default value is {self.client_default_value_declaration}.",

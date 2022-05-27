@@ -424,6 +424,9 @@ def update_client_url(yaml_data: Dict[str, Any]) -> str:
     ]["uri"]
 
 
+def _content_type_description(content_types: List[str]) -> str:
+    return "'" + "', '".join(content_types) + "'"
+
 def update_content_type_parameter(
     yaml_data: Dict[str, Any],
     body_parameter: Optional[Dict[str, Any]],
@@ -449,7 +452,7 @@ def update_content_type_parameter(
             f"{get_body_type_for_description(body_parameter)} body."
         )
     elif not in_overload:
-        content_types = "'" + "', '".join(request_media_types) + "'"
+        content_types = _content_type_description(request_media_types)
         description += f" Known values are: {content_types}."
     if not in_overload and not in_overriden:
         param["clientDefaultValue"] = body_parameter["defaultContentType"]
@@ -473,18 +476,20 @@ class M4Reformatter(YamlUpdatePlugin):  # pylint: disable=too-many-public-method
 
     def update_overloads(
         self,
+        operation: Dict[str, Any],
         group_name: str,
         yaml_data: Dict[str, Any],
         body_parameter: Optional[Dict[str, Any]],
         *,
         content_types: Optional[List[str]] = None,
-    ) -> List[Dict[str, Any]]:
-        overloads: List[Dict[str, Any]] = []
+    ):
+        operation["overloads"] = []
         if not body_parameter:
-            return overloads
+            return
         body_types = body_parameter["type"].get("types", [])
         if not body_types:
-            return overloads
+            return
+        overload_io = None
         for body_type in body_types:
             overload = self.update_overload(
                 group_name, yaml_data, body_type, content_types=content_types
@@ -494,8 +499,17 @@ class M4Reformatter(YamlUpdatePlugin):  # pylint: disable=too-many-public-method
                     parameter["clientDefaultValue"] = overload["bodyParameter"][
                         "defaultContentType"
                     ]
-            overloads.append(overload)
-        return overloads
+                    if body_type["type"] == "binary":
+                        overload_io = overload
+            operation["overloads"].append(overload)
+        
+        if overload_io:
+            for parameter in overload_io["parameters"]:
+                if parameter["restApiName"] == "Content-Type" and not parameter["clientDefaultValue"]:
+                    parameter["optional"] = False
+                    # overload_io["bodyParameter"]["optional"] = False
+                    content_types = _content_type_description(overload_io["bodyParameter"]["contentTypes"])
+                    parameter["description"] += f" Known values are: {content_types}."
 
     def _update_operation_helper(
         self,
@@ -578,8 +592,7 @@ class M4Reformatter(YamlUpdatePlugin):  # pylint: disable=too-many-public-method
             body_parameter["type"] = combined_type
             content_types = body_parameter["contentTypes"]
         operation = self._update_operation_helper(group_name, yaml_data, body_parameter)
-        operation["overloads"] = self.update_overloads(
-            group_name, yaml_data, body_parameter, content_types=content_types
+        self.update_overloads(operation, group_name, yaml_data, body_parameter, content_types=content_types
         )
         return operation
 
