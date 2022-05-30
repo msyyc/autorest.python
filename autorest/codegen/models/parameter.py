@@ -222,6 +222,10 @@ class BodyParameter(_BodyParameterBase):
     """Body parameter."""
 
     @property
+    def check_content_types(self) -> List[str]:
+        return self.yaml_data.get("checkContentTypes", [])
+
+    @property
     def content_types(self) -> List[str]:
         return self.yaml_data["contentTypes"]
 

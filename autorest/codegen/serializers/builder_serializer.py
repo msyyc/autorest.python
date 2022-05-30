@@ -615,8 +615,8 @@ class _OperationSerializer(
         body_kwarg_name = builder.request_builder.parameters.body_parameter.client_name
         if isinstance(body_param.type, BinaryType):
             retval.append(f"_{body_kwarg_name} = {body_param.client_name}")
-            if not body_param.optional:
-                content_types = "'" + "', '".join(body_param.content_types) + "'"
+            if body_param.check_content_types:
+                content_types = "'" + "', '".join(body_param.check_content_types) + "'"
                 retval.extend([
                     "if not content_type:",
                     f"    raise Exception(\"Please input content_type to indicate the kind of IO type. Known values are {content_types}\")"

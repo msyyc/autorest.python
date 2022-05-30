@@ -489,7 +489,6 @@ class M4Reformatter(YamlUpdatePlugin):  # pylint: disable=too-many-public-method
         body_types = body_parameter["type"].get("types", [])
         if not body_types:
             return
-        overload_io = None
         for body_type in body_types:
             overload = self.update_overload(
                 group_name, yaml_data, body_type, content_types=content_types
@@ -499,17 +498,14 @@ class M4Reformatter(YamlUpdatePlugin):  # pylint: disable=too-many-public-method
                     parameter["clientDefaultValue"] = overload["bodyParameter"][
                         "defaultContentType"
                     ]
-                    if body_type["type"] == "binary":
-                        overload_io = overload
+                    if body_type["type"] == "binary" and not parameter["clientDefaultValue"]:
+                        parameter["optional"] = False
+                        content_types_all = list(yaml_data["requestMediaTypes"].keys())
+                        parameter["description"] += f" Known values are: {_content_type_description(content_types_all)}."
+                        overload["bodyParameter"]["checkContentTypes"] = content_types_all
+
+                        
             operation["overloads"].append(overload)
-        
-        if overload_io:
-            for parameter in overload_io["parameters"]:
-                if parameter["restApiName"] == "Content-Type" and not parameter["clientDefaultValue"]:
-                    parameter["optional"] = False
-                    # overload_io["bodyParameter"]["optional"] = False
-                    content_types = _content_type_description(overload_io["bodyParameter"]["contentTypes"])
-                    parameter["description"] += f" Known values are: {content_types}."
 
     def _update_operation_helper(
         self,
@@ -592,8 +588,7 @@ class M4Reformatter(YamlUpdatePlugin):  # pylint: disable=too-many-public-method
             body_parameter["type"] = combined_type
             content_types = body_parameter["contentTypes"]
         operation = self._update_operation_helper(group_name, yaml_data, body_parameter)
-        self.update_overloads(operation, group_name, yaml_data, body_parameter, content_types=content_types
-        )
+        self.update_overloads(operation, group_name, yaml_data, body_parameter, content_types=content_types)
         return operation
 
     def add_paging_information(
