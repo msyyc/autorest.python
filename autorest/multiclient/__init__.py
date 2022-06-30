@@ -45,9 +45,9 @@ class MultiClientPlugin(Plugin):  # pylint: disable=abstract-method
 
     def find_version_path(self) -> str:
         output_folder = filter_output_uri(str(self.options["outputFolderUri"]))
-        version_folder = sorted(output_folder.glob("*/_version.py"))[0]
+        version_folder = next(output_folder.glob("*/_version.py"))
         module_version = "." + ".".join(version_folder.relative_to(output_folder).parts)
-        return module_version.strip(".py")
+        return module_version.replace(".py", "")
 
 
 class MultiClientPluginAutorest(MultiClientPlugin, PluginAutorest):
