@@ -4,12 +4,11 @@
 # license information.
 # --------------------------------------------------------------------------
 import logging
-from pathlib import Path
-import os
 from typing import Any, Dict
 import black
 
 from .. import Plugin, PluginAutorest
+from .._utils import filter_output_uri
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -21,11 +20,7 @@ class BlackScriptPlugin(Plugin):  # pylint: disable=abstract-method
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         output_folder_uri = self.options["outputFolderUri"]
-        if output_folder_uri.startswith("file:"):
-            output_folder_uri = output_folder_uri[5:]
-        if os.name == "nt" and output_folder_uri.startswith("///"):
-            output_folder_uri = output_folder_uri[3:]
-        self.output_folder = Path(output_folder_uri)
+        self.output_folder = filter_output_uri(output_folder_uri)
 
     def process(self) -> bool:
         # apply format_file on every file in the output folder

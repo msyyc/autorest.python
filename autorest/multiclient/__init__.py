@@ -8,6 +8,7 @@ from typing import Any, Dict
 from pathlib import Path
 from jinja2 import Environment, PackageLoader
 from .. import Plugin, PluginAutorest
+from .._utils import filter_output_uri
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,9 +34,7 @@ class MultiClientPlugin(Plugin):  # pylint: disable=abstract-method
         template = env.get_template("version.py.jinja2")
         self.write_file(
             Path("_version.py"),
-            template.render(
-                package_version=self.options.get("package-version") or "1.0.0b1"
-            ),
+            template.render(module_version=self.find_version_path()),
         )
 
         # py.typed
@@ -44,7 +43,13 @@ class MultiClientPlugin(Plugin):  # pylint: disable=abstract-method
         _LOGGER.info("Generating Done for multi client!")
         return True
 
+    def find_version_path(self) -> str:
+        output_folder = filter_output_uri(str(self.options["outputFolderUri"]))
+        version_folder = next(output_folder.glob("*/_version.py"))
+        module_version = "." + ".".join(version_folder.relative_to(output_folder).parts)
+        return module_version.replace(".py", "")
+
 
 class MultiClientPluginAutorest(MultiClientPlugin, PluginAutorest):
     def get_options(self) -> Dict[str, Any]:
-        return {"package-version": self._autorestapi.get_value("package-version")}
+        return {"outputFolderUri": self._autorestapi.get_value("outputFolderUri")}
