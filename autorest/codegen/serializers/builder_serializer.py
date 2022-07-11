@@ -211,6 +211,8 @@ class _BuilderBaseSerializer(Generic[BuilderType]):  # pylint: disable=abstract-
         retval: List[str] = []
         if builder.is_overload:
             return ["@overload"]
+        if builder.yaml_data.get("addedApiVersion"):
+            retval.append("@added(\"" + builder.yaml_data.get("addedApiVersion") + "\")")
         if self.code_model.options["tracing"] and builder.want_tracing:
             retval.append(f"@distributed_trace{'_async' if self.async_mode else ''}")
         return retval

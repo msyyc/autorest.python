@@ -338,8 +338,7 @@ class CodeGeneratorAutorest(CodeGenerator, PluginAutorest):
 
         if self._autorestapi.get_value("input-yaml"):
             input_yaml = self._autorestapi.get_value("input-yaml")
-            # file_content = self._autorestapi.read_file(input_yaml)
-            file_content = open(input_yaml, "r").read()
+            file_content = self._autorestapi.read_file(input_yaml)
         else:
             inputs = self._autorestapi.list_inputs()
             _LOGGER.debug("Possible Inputs: %s", inputs)
